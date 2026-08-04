@@ -1,0 +1,16 @@
+{
+  "name": "voxpopuli",
+  "version": "1.0.0",
+  "private": true,
+  "description": "VoxPopuli - simulate how the public reacts to news in a digital world",
+  "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "backend": "bash scripts/backend.sh",
+    "frontend": "cd frontend && npm run dev",
+    "dev": "concurrently -n backend,frontend -c blue,green \"bash scripts/backend.sh\" \"npm run frontend\"",
+    "build": "cd frontend && npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
