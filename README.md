@@ -15,23 +15,6 @@ personas.
 
 ---
 
-## Why it's better than MiroFish
-
-- **Self-contained** — SQLite + own simulation engine. No Zep, no OASIS, no cloud keys
-  required to run a full simulation.
-- **Works out of the box** — with no LLM key the built-in heuristic engine still produces
-  a full, live simulation and report (deterministic, instant).
-- **One command setup** — `npm run setup` installs backend deps and builds the frontend.
-- **Cheaper LLM mode** — when a key *is* set, citizen behavior is generated with **batched
-  parallel LLM calls** (one request per group of citizens per round, not one per citizen).
-- **Real-time** — live WebSocket feed powers a 2D world canvas, sentiment chart and
-  message feed while the simulation runs.
-- **Breakable news** — inject events mid-run; watch sentiment and stances shift live.
-- **Smart report** — executive summary, key drivers, camp breakdown, influencer ranking,
-  confidence level and caveats.
-
----
-
 ## Quick start
 
 Requires Python 3.10+ and Node 18+.
