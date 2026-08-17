@@ -1,4 +1,5 @@
 # VoxPopuli
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/samdoom-coder/voxpopuli/blob/main/LICENSE)
 
 A self-contained **digital-world simulator** that predicts how the public reacts to a news story.
 
@@ -6,12 +7,6 @@ Feed it a headline and a piece of news; VoxPopuli spins up a crowd of AI citizen
 personalities, stances and social ties, lets them talk, react to breaking events, form
 camps, and drift with the crowd — then produces a **smart prediction report** of where
 public opinion lands, how confident the prediction is, and who the key influencers are.
-
-VoxPopuli is a "better rewrite" of [MiroFish](../MiroFish): it replaces the external
-services (Zep memory + OASIS multi-agent network) with a local SQLite store and a built-in
-simulation engine. **No external services. One-command setup.** Optionally plug in any
-OpenAI-compatible API to upgrade the citizen brains from the heuristic engine to real LLM
-personas.
 
 ---
 
