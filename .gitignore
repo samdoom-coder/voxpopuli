@@ -7,3 +7,4 @@ __pycache__/
 backend/uploads/
 *.log
 .DS_Store
+voxpopuli.zip

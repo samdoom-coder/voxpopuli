@@ -5,8 +5,8 @@ const H = 600;
 
 function stanceColor(stance) {
   const t = Math.max(0, Math.min(1, (stance + 1) / 2)); // 0 blue .. 1 amber
-  const blue = [74, 144, 255];
-  const gray = [160, 170, 180];
+  const blue = [96, 158, 255];
+  const gray = [151, 162, 180];
   const amber = [255, 176, 66];
   let c;
   if (t < 0.5) {
@@ -81,13 +81,13 @@ export default function LiveCanvas({ agents, actions, event, running, onSelect }
       ctx.clearRect(0, 0, W, H);
       // backdrop
       const bg = ctx.createRadialGradient(W / 2, H / 2, 60, W / 2, H / 2, 620);
-      bg.addColorStop(0, "#0d1526");
-      bg.addColorStop(1, "#070b14");
+      bg.addColorStop(0, "#0b101f");
+      bg.addColorStop(1, "#060912");
       ctx.fillStyle = bg;
       ctx.fillRect(0, 0, W, H);
 
       // faint grid
-      ctx.strokeStyle = "rgba(120,150,200,0.06)";
+      ctx.strokeStyle = "rgba(139,152,255,0.055)";
       ctx.lineWidth = 1;
       for (let i = 0; i <= 8; i++) {
         const gx = (i / 8) * W;
@@ -97,10 +97,10 @@ export default function LiveCanvas({ agents, actions, event, running, onSelect }
       }
 
       // axis labels
-      ctx.fillStyle = "rgba(150,180,220,0.35)";
-      ctx.font = "12px ui-monospace, monospace";
-      ctx.fillText("OPPOSE", 18, H - 16);
-      ctx.fillText("SUPPORT", W - 90, H - 16);
+      ctx.fillStyle = "rgba(147,160,198,0.45)";
+      ctx.font = "10px 'JetBrains Mono', ui-monospace, monospace";
+      ctx.fillText("◀ OPPOSE", 18, H - 16);
+      ctx.fillText("SUPPORT ▶", W - 100, H - 16);
 
       // shockwave(s)
       wavesRef.current = wavesRef.current.filter((w) => now - w.born < w.life);
@@ -153,11 +153,11 @@ export default function LiveCanvas({ agents, actions, event, running, onSelect }
         const y = b.y - 10 - k * 26;
         ctx.globalAlpha = Math.max(alpha, 0);
         const col = stanceColor(b.stance);
-        ctx.font = "13px ui-monospace, monospace";
+        ctx.font = "12px Inter, ui-sans-serif, sans-serif";
         const w = ctx.measureText(b.text).width + 16;
-        ctx.fillStyle = "rgba(10,15,25,0.85)";
+        ctx.fillStyle = "rgba(8,12,26,0.9)";
         ctx.beginPath();
-        ctx.roundRect(b.x - w / 2, y - 16, w, 22, 6);
+        ctx.roundRect(b.x - w / 2, y - 16, w, 22, 7);
         ctx.fill();
         ctx.strokeStyle = col;
         ctx.lineWidth = 1;

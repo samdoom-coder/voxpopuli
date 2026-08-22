@@ -193,18 +193,21 @@ export default function World({ sid, pid, name, onExit }) {
       <div className="world-grid">
         <section className="card canvas-card">
           <div className="card-head">
-            <h2>Digital world</h2>
+            <h2><span className="sq" /> Digital world</h2>
             {activeEvent && running && (
               <span className="breaking">BREAKING · {activeEvent.content}</span>
             )}
           </div>
-          <LiveCanvas
-            agents={agents}
-            actions={feed.slice(0, 40)}
-            event={activeEvent}
-            running={running}
-            onSelect={selectAgent}
-          />
+          <div className="canvas-frame">
+            <LiveCanvas
+              agents={agents}
+              actions={feed.slice(0, 40)}
+              event={activeEvent}
+              running={running}
+              onSelect={selectAgent}
+            />
+            <span className="canvas-tag">SIMULATION VIEWPORT</span>
+          </div>
           <div className="legend">
             <span className="l-item"><i className="dot blue" /> opposed</span>
             <span className="l-item"><i className="dot gray" /> neutral</span>
@@ -214,7 +217,7 @@ export default function World({ sid, pid, name, onExit }) {
         </section>
 
         <section className="card">
-          <h2>Sentiment pulse</h2>
+          <h2><span className="sq" /> Sentiment pulse</h2>
           <SentimentChart series={snapshots} />
           <div className="camp-row">
             {["support", "neutral", "oppose"].map((c) => (
@@ -227,7 +230,7 @@ export default function World({ sid, pid, name, onExit }) {
         </section>
 
         <section className="card">
-          <h2>Inject breaking news</h2>
+          <h2><span className="sq" /> Inject breaking news</h2>
           <p className="muted">Shock the world mid-simulation and watch opinion ripple. (God-mode.)</p>
           <textarea
             rows={2}
@@ -255,7 +258,7 @@ export default function World({ sid, pid, name, onExit }) {
         </section>
 
         <section className="card">
-          <h2>Live feed</h2>
+          <h2><span className="sq" /> Live feed</h2>
           <div className="feed-scroll">
             <FeedPanel actions={feed} />
           </div>
@@ -292,7 +295,7 @@ export default function World({ sid, pid, name, onExit }) {
         {done && (
           <section className="card report-card">
             <div className="card-head">
-              <h2>Prediction report</h2>
+              <h2><span className="sq" /> Prediction report</h2>
               <button className="ghost" onClick={regen} disabled={reportLoading}>
                 {reportLoading ? "writing…" : "↻ regenerate"}
               </button>
