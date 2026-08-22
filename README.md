@@ -1,6 +1,7 @@
 # VoxPopuli
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/samdoom-coder/voxpopuli/blob/main/LICENSE)
 
+![Description of image](image.png)
 A self-contained **digital-world simulator** that predicts how the public reacts to a news story.
 
 Feed it a headline and a piece of news; VoxPopuli spins up a crowd of AI citizens with
