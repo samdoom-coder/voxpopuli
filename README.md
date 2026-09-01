@@ -1,6 +1,7 @@
 # VoxPopuli
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/samdoom-coder/voxpopuli/blob/main/LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Node 18+](https://img.shields.io/badge/node-18+-red.svg)](https://nodejs.org/en/download)
 
 ![Description of image](image.png)
 A self-contained **digital-world simulator** that predicts how the public reacts to a news story.
