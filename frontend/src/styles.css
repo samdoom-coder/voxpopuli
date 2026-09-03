@@ -378,13 +378,14 @@ button:disabled { opacity: 0.45; cursor: not-allowed; transform: none !important
 
 .live-canvas {
   width: 100%; border-radius: var(--r-md); display: block;
-  background: #101210; border: 1px solid var(--line-strong); cursor: crosshair;
+  background: #f7f7f5; border: 1px solid var(--line-strong); cursor: crosshair;
 }
 .canvas-frame { position: relative; }
 .canvas-tag {
   position: absolute; top: 8px; right: 8px;
   font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 1px;
-  color: rgba(255,255,255,0.45); background: rgba(0,0,0,0.4);
+  color: var(--muted); background: rgba(255,255,255,0.85);
+  border: 1px solid var(--line);
   padding: 3px 8px; border-radius: 3px; pointer-events: none;
 }
 
@@ -405,6 +406,11 @@ button:disabled { opacity: 0.45; cursor: not-allowed; transform: none !important
 .dot.blue { background: #2b4bee; }
 .dot.gray { background: #9a9a90; }
 .dot.amber { background: #b45309; }
+.tie { width: 16px; height: 0; border-top: 1.5px solid #c9c9c2; display: inline-block; }
+.halo {
+  width: 10px; height: 10px; border-radius: 50%; display: inline-block;
+  border: 1.6px solid var(--muted); background: transparent;
+}
 
 .camp-row { display: flex; gap: 10px; margin-top: 16px; }
 .camp {

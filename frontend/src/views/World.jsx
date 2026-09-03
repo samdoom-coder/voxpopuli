@@ -204,15 +204,18 @@ export default function World({ sid, pid, name, onExit }) {
               actions={feed.slice(0, 40)}
               event={activeEvent}
               running={running}
+              selectedId={selected?.id}
               onSelect={selectAgent}
             />
-            <span className="canvas-tag">SIMULATION VIEWPORT</span>
+            <span className="canvas-tag">LIVE NETWORK · POSITION = STANCE · LINES = SOCIAL TIES</span>
           </div>
           <div className="legend">
             <span className="l-item"><i className="dot blue" /> opposed</span>
             <span className="l-item"><i className="dot gray" /> neutral</span>
             <span className="l-item"><i className="dot amber" /> supportive</span>
-            <span className="l-item dim">click a citizen for their profile</span>
+            <span className="l-item"><i className="tie" /> social tie</span>
+            <span className="l-item"><i className="halo" /> influencer</span>
+            <span className="l-item dim">hover to trace · click a citizen for their profile</span>
           </div>
         </section>
 
