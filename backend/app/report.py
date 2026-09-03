@@ -147,7 +147,7 @@ DATA:
             )
         except Exception as exc:
             log.warning("llm report failed, falling back: %s", exc)
-            content = _heuristic_report(project, agents, snaps, evs, counts)
+            content = _heuristic_report(sid, project, agents, snaps, evs, counts)
 
     db.save_report(sid, content)
     return content

@@ -47,6 +47,8 @@ export const api = {
   injectEvent: (sid, payload) =>
     http(`/simulations/${sid}/events`, { method: "POST", body: JSON.stringify(payload) }),
   getAgents: (sid) => http(`/simulations/${sid}/agents`),
+  getAgentMessages: (sid, aid, limit = 12) =>
+    http(`/simulations/${sid}/agents/${aid}/messages?limit=${limit}`),
   getMessages: (sid, limit = 80) => http(`/simulations/${sid}/messages?limit=${limit}`),
   getSnapshots: (sid) => http(`/simulations/${sid}/snapshots`),
   getEvents: (sid) => http(`/simulations/${sid}/events`),

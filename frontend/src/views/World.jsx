@@ -3,6 +3,7 @@ import { api, wsUrl } from "../api.js";
 import LiveCanvas from "../components/LiveCanvas.jsx";
 import FeedPanel from "../components/FeedPanel.jsx";
 import SentimentChart from "../components/SentimentChart.jsx";
+import Influencers from "../components/Influencers.jsx";
 import { renderMarkdown } from "../utils.js";
 
 const STATUS_LABEL = {
@@ -14,6 +15,18 @@ const STATUS_LABEL = {
   failed: "failed",
 };
 
+// snapshots arrive in two shapes: REST rows carry camps under data.camps,
+// live WS rounds carry camps top-level. Normalize once for the chart.
+function normSnap(s) {
+  return {
+    round: s.round,
+    sentiment: s.sentiment,
+    stance_std: s.stance_std,
+    message_count: s.message_count,
+    camps: s.camps || s.data?.camps || null,
+  };
+}
+
 export default function World({ sid, pid, name, onExit }) {
   const [sim, setSim] = useState(null);
   const [agents, setAgents] = useState([]);
@@ -22,6 +35,7 @@ export default function World({ sid, pid, name, onExit }) {
   const [events, setEvents] = useState([]);
   const [report, setReport] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
+  const [analysis, setAnalysis] = useState(null);
   const [activeEvent, setActiveEvent] = useState(null);
   const [evtText, setEvtText] = useState("");
   const [evtImpact, setEvtImpact] = useState(0.6);
@@ -46,6 +60,15 @@ export default function World({ sid, pid, name, onExit }) {
     }
   }, [sid]);
 
+  const fetchAnalysis = useCallback(async () => {
+    try {
+      const r = await api.getAnalysis(sid);
+      setAnalysis(r.data);
+    } catch {
+      /* not ready */
+    }
+  }, [sid]);
+
   // bootstrap
   useEffect(() => {
     (async () => {
@@ -59,13 +82,14 @@ export default function World({ sid, pid, name, onExit }) {
       applySim(s.data);
       setMode(s.data.world?.mode || s.data.config?.mode || "heuristic");
       setAgents(a.data);
-      setSnapshots(snaps.data);
+      setSnapshots(snaps.data.map(normSnap));
       setEvents(evs.data);
       const items = msg.data.map((m) => ({ ...m, key: feedIdRef.current++ }));
       setFeed(items);
       if (s.data.status === "completed") fetchReport();
+      if (s.data.status === "completed" || s.data.status === "stopped") fetchAnalysis();
     })();
-  }, [sid, applySim, fetchReport]);
+  }, [sid, applySim, fetchReport, fetchAnalysis]);
 
   // websocket
   useEffect(() => {
@@ -78,7 +102,7 @@ export default function World({ sid, pid, name, onExit }) {
         setSnapshots((prev) => {
           const last = prev[prev.length - 1];
           if (last && last.round === msg.round) return prev;
-          return [...prev, { round: msg.round, sentiment: msg.sentiment, stance_std: msg.stance_std, message_count: msg.message_count }];
+          return [...prev, normSnap({ round: msg.round, sentiment: msg.sentiment, stance_std: msg.stance_std, message_count: msg.message_count, camps: msg.camps })];
         });
         setActiveEvent(msg.event);
         setSim((prev) => ({ ...(prev || {}), current_round: msg.round }));
@@ -88,15 +112,17 @@ export default function World({ sid, pid, name, onExit }) {
       } else if (msg.type === "status") {
         setSim((prev) => ({ ...(prev || {}), status: msg.status, error: msg.error }));
         if (msg.status === "completed") fetchReport();
+        if (msg.status === "completed" || msg.status === "stopped") fetchAnalysis();
       } else if (msg.type === "report_ready") {
         fetchReport();
+        fetchAnalysis();
       }
     };
     ws.onclose = () => {
       // light polling fallback
     };
     return () => ws.close();
-  }, [sid, fetchReport]);
+  }, [sid, fetchReport, fetchAnalysis]);
 
   // poll status when running (WS fallback)
   useEffect(() => {
@@ -108,11 +134,12 @@ export default function World({ sid, pid, name, onExit }) {
         if (s.data.status !== "running") {
           clearInterval(t);
           if (s.data.status === "completed") fetchReport();
+          if (s.data.status === "completed" || s.data.status === "stopped") fetchAnalysis();
         }
       } catch {}
     }, 2000);
     return () => clearInterval(t);
-  }, [sim, sid, applySim, fetchReport]);
+  }, [sim, sid, applySim, fetchReport, fetchAnalysis]);
 
   const run = async () => {
     setError("");
@@ -156,10 +183,14 @@ export default function World({ sid, pid, name, onExit }) {
   const selectAgent = async (a) => {
     setSelected(a);
     try {
-      const m = await api.getMessages(sid, 500);
-      a.posts = m.data.filter((x) => x.agent_id === a.id).slice(0, 12);
+      const m = await api.getAgentMessages(sid, a.id, 12);
+      a.posts = m.data;
     } catch {}
     setSelected({ ...a });
+  };
+  const pickAgent = (id) => {
+    const a = agents.find((x) => x.id === id);
+    if (a) selectAgent(a);
   };
 
   const status = sim?.status || "created";
@@ -230,6 +261,11 @@ export default function World({ sid, pid, name, onExit }) {
               </div>
             ))}
           </div>
+        </section>
+
+        <section className="card">
+          <h2><span className="sq" /> Top voices</h2>
+          <Influencers agents={agents} analysis={analysis} onPick={pickAgent} />
         </section>
 
         <section className="card">

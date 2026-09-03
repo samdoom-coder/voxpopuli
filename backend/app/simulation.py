@@ -252,6 +252,7 @@ name, action, content (only when posting/replying), reply_to_msg_id, target_msg_
             "sentiment": snap["sentiment"],
             "stance_std": snap["stance_std"],
             "message_count": snap["message_count"],
+            "camps": snap["camps"],
             "actions": round_actions,
             "agents": [self._agent_public(a) for a in self.agents.values()],
             "event": self.active_event,
@@ -415,14 +416,18 @@ name, action, content (only when posting/replying), reply_to_msg_id, target_msg_
         moods = [a["mood"] for a in self.agents.values()]
         counts = db.message_counts(self.sid)
         sentiment = counts["avg_sentiment"]
+        camps = {"support": 0, "neutral": 0, "oppose": 0}
+        for s in stances:
+            camps["support" if s > 0.25 else ("oppose" if s < -0.25 else "neutral")] += 1
         snap = {
             "sentiment": round(sentiment, 3),
             "stance_std": round(_stddev(stances), 3),
             "message_count": counts["count"],
             "avg_mood": round(sum(moods) / len(moods), 3) if moods else 0.0,
+            "camps": camps,
         }
         db.insert_snapshot(self.sid, r, snap["sentiment"], snap["stance_std"], counts["count"],
-                           {"avg_mood": snap["avg_mood"]})
+                           {"avg_mood": snap["avg_mood"], "camps": camps})
         return snap
 
     def _agent_public(self, a: dict) -> dict:

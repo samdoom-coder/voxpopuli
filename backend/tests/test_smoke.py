@@ -101,10 +101,20 @@ def test_full_simulation_flow(client):
     msgs = r.json()["data"]
     assert len(msgs) > 0
 
+    # per-agent messages route serves only that citizen's posts
+    aid = msgs[0]["agent_id"]
+    r = client.get(f"/api/simulations/{sid}/agents/{aid}/messages?limit=5")
+    assert r.status_code == 200, r.text
+    amsgs = r.json()["data"]
+    assert len(amsgs) > 0
+    assert all(m["agent_id"] == aid for m in amsgs)
+
     r = client.get(f"/api/simulations/{sid}/snapshots")
     snaps = r.json()["data"]
     assert len(snaps) == 3
     assert all(-1 <= s["sentiment"] <= 1 for s in snaps)
+    # camp history is recorded on every snapshot
+    assert all(sum(s["data"]["camps"].values()) == 8 for s in snaps)
 
     r = client.get(f"/api/simulations/{sid}/events")
     assert len(r.json()["data"]) >= 1

@@ -207,6 +207,16 @@ async def get_messages(sid: str, limit: int = 60):
     return {"success": True, "data": msgs}
 
 
+@router.get("/simulations/{sid}/agents/{aid}/messages")
+async def get_agent_messages(sid: str, aid: str, limit: int = 12):
+    limit = max(1, min(limit, 200))
+    msgs = db.agent_messages(sid, aid, limit=limit)
+    name_map = {a["id"]: a["name"] for a in db.get_agents(sid)}
+    for m in msgs:
+        m["agent_name"] = name_map.get(m["agent_id"], "?")
+    return {"success": True, "data": msgs}
+
+
 @router.get("/simulations/{sid}/snapshots")
 async def get_snapshots(sid: str):
     return {"success": True, "data": db.get_snapshots(sid)}
