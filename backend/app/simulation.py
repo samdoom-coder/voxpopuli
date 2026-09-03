@@ -86,6 +86,7 @@ class SimulationEngine:
         self.total_rounds = int(config.get("rounds") or Config.DEFAULT_ROUNDS)
         self.speed_ms = int(config.get("speed_ms") or 0)
         self._mode = str(config.get("mode") or "auto")
+        self.seed = int(config.get("seed") or 0)
 
         self._stop = asyncio.Event()
         self.current_round = 0
@@ -225,7 +226,7 @@ name, action, content (only when posting/replying), reply_to_msg_id, target_msg_
         if self.pending_event and not self.active_event:
             self.active_event = self.pending_event
             self.pending_event = None
-        rng = random.Random(abs(hash(self.sid)) + r * 7919)
+        rng = random.Random(self.seed + r * 7919)
         force_event = self.active_event is not None
         active_ids = self._active_agents(rng, force_event)
         active = [self.agents[aid] for aid in active_ids]

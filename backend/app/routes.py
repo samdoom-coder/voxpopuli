@@ -1,5 +1,6 @@
 """HTTP API routes."""
 import logging
+import random
 
 from fastapi import APIRouter, File, Form, UploadFile, WebSocket
 from fastapi.responses import JSONResponse
@@ -101,11 +102,20 @@ async def create_simulation(payload: dict):
         return JSONResponse({"success": False, "error": "invalid numbers"}, status_code=400)
     num = max(2, min(num, Config.MAX_AGENTS))
     rounds = max(1, min(rounds, Config.MAX_ROUNDS))
+    raw_seed = payload.get("seed")
+    if raw_seed is None or str(raw_seed).strip() == "":
+        seed = random.randint(0, 2 ** 31 - 1)
+    else:
+        try:
+            seed = int(raw_seed)
+        except (TypeError, ValueError):
+            return JSONResponse({"success": False, "error": "invalid seed"}, status_code=400)
     config = {
         "num_agents": num,
         "rounds": rounds,
         "speed_ms": max(0, int(payload.get("speed_ms") or 0)),
         "mode": payload.get("mode") or "auto",
+        "seed": seed,
     }
     sim = db.create_simulation(pid, payload.get("name") or proj["name"], config)
     return {"success": True, "data": sim}
@@ -138,18 +148,47 @@ async def build_world(sid: str):
         return JSONResponse({"success": False, "error": "simulation not found"}, status_code=404)
     if sid in ENGINES:
         return JSONResponse({"success": False, "error": "simulation is running"}, status_code=400)
+    count, mode = await _do_build(sid)
+    agents = db.get_agents(sid)
+    return {"success": True, "data": {"agent_count": count, "mode": mode, "agents": agents}}
+
+
+async def _do_build(sid: str) -> tuple[int, str]:
+    """(Re)build the citizen world for a simulation. Returns (agent_count, mode)."""
+    sim = db.get_simulation(sid)
     proj = db.get_project(sim["project_id"])
     config = sim["config"]
     num = config["num_agents"]
+    seed = int(config.get("seed") or 0)
     db.delete_agents(sid)
     agents, mode = await generate_world(sid, proj.get("seed_text") or "", proj.get("topics") or [],
-                                        proj.get("requirement") or "", num)
-    agents = layout_agents(agents, seed=abs(hash(sid)) % (1 << 31))
+                                        proj.get("requirement") or "", num, seed=seed)
+    agents = layout_agents(agents, seed=seed)
     for a in agents:
         a["id"] = db.new_id("agt")
+        a["initial_stance"] = a.get("stance", 0.0)
     db.insert_agents(sid, agents)
     db.update_simulation(sid, status="ready", world={"mode": mode, "agent_count": len(agents)})
-    return {"success": True, "data": {"agent_count": len(agents), "mode": mode, "agents": agents}}
+    return len(agents), mode
+
+
+@router.post("/simulations/{sid}/clone")
+async def clone_simulation(sid: str, payload: dict | None = None):
+    """Clone a simulation's config (same seed → identical world) and build it.
+
+    The starting point for A/B what-if runs: clone, inject a different event
+    in each copy, run both, then compare.
+    """
+    sim = db.get_simulation(sid)
+    if not sim:
+        return JSONResponse({"success": False, "error": "simulation not found"}, status_code=404)
+    name = ((payload or {}).get("name") or "").strip() or f"{sim['name']} (clone)"
+    clone = db.create_simulation(sim["project_id"], name, dict(sim["config"]))
+    count, mode = await _do_build(clone["id"])
+    out = db.get_simulation(clone["id"])
+    out["agent_count"] = count
+    out["world_mode"] = mode
+    return {"success": True, "data": out}
 
 
 @router.post("/simulations/{sid}/run")
@@ -174,6 +213,20 @@ async def stop_simulation(sid: str):
             db.update_simulation(sid, status="stopped")
         return {"success": True, "data": {"status": "stopped"}}
     return {"success": True, "data": {"status": "stopping"}}
+
+
+@router.post("/simulations/{sid}/reset")
+async def reset_simulation(sid: str):
+    sim = db.get_simulation(sid)
+    if not sim:
+        return JSONResponse({"success": False, "error": "simulation not found"}, status_code=404)
+    if sid in ENGINES:
+        return JSONResponse({"success": False, "error": "simulation is running"}, status_code=400)
+    if db.agent_stats(sid)["count"] == 0:
+        return JSONResponse({"success": False, "error": "world not built yet"}, status_code=400)
+    db.reset_simulation(sid)
+    db.update_simulation(sid, status="ready", current_round=0, error="")
+    return {"success": True, "data": {"status": "ready"}}
 
 
 @router.post("/simulations/{sid}/events")

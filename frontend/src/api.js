@@ -42,8 +42,11 @@ export const api = {
   listSimulations: () => http("/simulations"),
   getSimulation: (sid) => http(`/simulations/${sid}`),
   buildWorld: (sid) => http(`/simulations/${sid}/build`, { method: "POST" }),
+  cloneSimulation: (sid, payload = {}) =>
+    http(`/simulations/${sid}/clone`, { method: "POST", body: JSON.stringify(payload) }),
   runSimulation: (sid) => http(`/simulations/${sid}/run`, { method: "POST" }),
   stopSimulation: (sid) => http(`/simulations/${sid}/stop`, { method: "POST" }),
+  resetSimulation: (sid) => http(`/simulations/${sid}/reset`, { method: "POST" }),
   injectEvent: (sid, payload) =>
     http(`/simulations/${sid}/events`, { method: "POST", body: JSON.stringify(payload) }),
   getAgents: (sid) => http(`/simulations/${sid}/agents`),

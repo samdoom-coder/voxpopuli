@@ -134,3 +134,93 @@ def test_run_without_build_fails(client):
     sid = r.json()["data"]["id"]
     r = client.post(f"/api/simulations/{sid}/run")
     assert r.status_code == 400
+
+
+def test_invalid_seed_rejected(client):
+    proj = make_project(client)
+    r = client.post("/api/simulations", json={"project_id": proj["id"], "seed": "not-a-number"})
+    assert r.status_code == 400
+
+
+def test_clone_missing_simulation_404(client):
+    r = client.post("/api/simulations/sim_missing/clone", json={})
+    assert r.status_code == 404
+
+
+def test_clone_reproduces_world(client):
+    proj = make_project(client)
+    r = client.post("/api/simulations", json={
+        "project_id": proj["id"], "num_agents": 8, "rounds": 2,
+        "speed_ms": 0, "mode": "heuristic", "seed": 777,
+    })
+    sid = r.json()["data"]["id"]
+    assert client.post(f"/api/simulations/{sid}/build").status_code == 200
+
+    r = client.post(f"/api/simulations/{sid}/clone", json={"name": "B run"})
+    assert r.status_code == 200, r.text
+    data = r.json()["data"]
+    assert data["name"] == "B run"
+    assert data["config"]["seed"] == 777
+    assert data["status"] == "ready"
+    assert data["agent_count"] == 8
+
+    fp = lambda a: (a["name"], a["stance"], a["x"], a["y"])
+    orig = client.get(f"/api/simulations/{sid}/agents").json()["data"]
+    copy = client.get(f"/api/simulations/{data['id']}/agents").json()["data"]
+    assert [fp(a) for a in orig] == [fp(a) for a in copy]
+
+
+def test_same_seed_same_world_and_reset(client):
+    proj = make_project(client)
+
+    def make_sim(seed):
+        r = client.post("/api/simulations", json={
+            "project_id": proj["id"], "num_agents": 8, "rounds": 2,
+            "speed_ms": 0, "mode": "heuristic", "seed": seed,
+        })
+        assert r.status_code == 200, r.text
+        assert r.json()["data"]["config"]["seed"] == seed
+        return r.json()["data"]["id"]
+
+    sid1 = make_sim(12345)
+    sid2 = make_sim(12345)
+    for sid in (sid1, sid2):
+        r = client.post(f"/api/simulations/{sid}/build")
+        assert r.status_code == 200, r.text
+
+    fp = lambda a: (a["name"], a["stance"], a["x"], a["y"], a["influence"], a["activity"])
+    a1 = client.get(f"/api/simulations/{sid1}/agents").json()["data"]
+    a2 = client.get(f"/api/simulations/{sid2}/agents").json()["data"]
+    assert [fp(a) for a in a1] == [fp(a) for a in a2]
+    initial = {a["id"]: (a["stance"], a["mood"]) for a in a1}
+
+    # run to completion, then reset restores the opening stances
+    assert client.post(f"/api/simulations/{sid1}/run").status_code == 200
+    for _ in range(60):
+        s = client.get(f"/api/simulations/{sid1}").json()["data"]["status"]
+        if s in ("completed", "stopped", "failed"):
+            break
+        time.sleep(0.25)
+    assert s == "completed"
+    drifted = {a["id"]: (a["stance"], a["mood"]) for a in
+               client.get(f"/api/simulations/{sid1}/agents").json()["data"]}
+    assert any(drifted[k] != initial[k] for k in initial)
+
+    r = client.post(f"/api/simulations/{sid1}/reset")
+    assert r.status_code == 200, r.text
+    sim = client.get(f"/api/simulations/{sid1}").json()["data"]
+    assert sim["status"] == "ready" and sim["current_round"] == 0
+    restored = {a["id"]: (a["stance"], a["mood"]) for a in
+                client.get(f"/api/simulations/{sid1}/agents").json()["data"]}
+    assert restored == initial
+    assert client.get(f"/api/simulations/{sid1}/messages").json()["data"] == []
+    assert client.get(f"/api/simulations/{sid1}/snapshots").json()["data"] == []
+
+    # and it runs again cleanly after reset
+    assert client.post(f"/api/simulations/{sid1}/run").status_code == 200
+    for _ in range(60):
+        s = client.get(f"/api/simulations/{sid1}").json()["data"]["status"]
+        if s in ("completed", "stopped", "failed"):
+            break
+        time.sleep(0.25)
+    assert s == "completed"

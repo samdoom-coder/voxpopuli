@@ -266,6 +266,20 @@ def delete_agents(simulation_id: str):
         c.execute("DELETE FROM reports WHERE simulation_id=?", (simulation_id,))
 
 
+def reset_simulation(simulation_id: str):
+    """Wipe run history and restore citizens to their initial stances.
+
+    Worlds built before initial_stance was recorded reset to neutral (0.0).
+    """
+    with cursor() as c:
+        c.execute("DELETE FROM messages WHERE simulation_id=?", (simulation_id,))
+        c.execute("DELETE FROM snapshots WHERE simulation_id=?", (simulation_id,))
+        c.execute("DELETE FROM events WHERE simulation_id=?", (simulation_id,))
+        c.execute("DELETE FROM reports WHERE simulation_id=?", (simulation_id,))
+        c.execute("UPDATE agents SET stance=initial_stance, mood=0 WHERE simulation_id=?",
+                  (simulation_id,))
+
+
 def update_agent(simulation_id: str, agent_id: str, **fields):
     sets = ", ".join(f"{k}=?" for k in fields)
     vals = list(fields.values())

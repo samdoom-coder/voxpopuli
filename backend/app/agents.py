@@ -27,8 +27,8 @@ def _pick_names(n: int, seed: int) -> list[str]:
     return out
 
 
-def _heuristic_personas(simulation_id: str, topics: list[dict], num: int) -> list[dict]:
-    rng = random.Random(abs(hash(simulation_id)))
+def _heuristic_personas(seed: int, topics: list[dict], num: int) -> list[dict]:
+    rng = random.Random(seed)
     occupations = ["journalist", "university student", "software engineer", "small business owner",
                    "teacher", "retired nurse", "startup founder", "policy analyst", "barista",
                    "lawyer", "high school student", "marketing manager", "doctor", "artist",
@@ -138,7 +138,7 @@ Return ONLY a JSON array of {batch_size} objects, each with fields:
 Make the group diverse. No object may have an empty name."""
 
 
-async def generate_world(simulation_id: str, seed_text: str, topics: list[dict], requirement: str, num: int) -> tuple[list[dict], str]:
+async def generate_world(simulation_id: str, seed_text: str, topics: list[dict], requirement: str, num: int, seed: int = 7) -> tuple[list[dict], str]:
     """Returns (agents, mode). mode is 'llm' or 'heuristic'."""
     world_brief = seed_text[:1400] if seed_text else "The community is discussing a developing story."
     if len(world_brief) < 200:
@@ -146,7 +146,7 @@ async def generate_world(simulation_id: str, seed_text: str, topics: list[dict],
 
     client = LLMFactory.get()
     if client is None:
-        agents = _heuristic_personas(simulation_id, topics, num)
+        agents = _heuristic_personas(seed, topics, num)
         return agents, "heuristic"
 
     agents: list[dict] = []
@@ -169,7 +169,7 @@ async def generate_world(simulation_id: str, seed_text: str, topics: list[dict],
         agents.extend(_extract_personas_from_llm({"agents": r}))
 
     if len(agents) < num:
-        fill = _heuristic_personas(f"{simulation_id}-fill", topics, num - len(agents))
+        fill = _heuristic_personas(seed + 999983, topics, num - len(agents))
         agents.extend(fill)
     return agents[:num], "llm"
 

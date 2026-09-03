@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 
-export default function Home({ onEnter }) {
+export default function Home({ onEnter, onCompare }) {
   const [name, setName] = useState("");
   const [requirement, setRequirement] = useState("");
   const [seedText, setSeedText] = useState("");
   const [numAgents, setNumAgents] = useState(40);
   const [rounds, setRounds] = useState(12);
   const [speed, setSpeed] = useState(0);
+  const [seed, setSeed] = useState("");
   const [mode, setMode] = useState("auto");
   const [health, setHealth] = useState(null);
   const [history, setHistory] = useState([]);
@@ -24,6 +25,15 @@ export default function Home({ onEnter }) {
   }, []);
 
   const [simHistory, setSimHistory] = useState([]);
+  const [cmpSel, setCmpSel] = useState([]);
+
+  const toggleCmp = (s) => {
+    setCmpSel((prev) =>
+      prev.some((x) => x.id === s.id)
+        ? prev.filter((x) => x.id !== s.id)
+        : [...prev.slice(-1), s]
+    );
+  };
 
   async function create() {
     setError("");
@@ -49,6 +59,7 @@ export default function Home({ onEnter }) {
         rounds,
         speed_ms: speed,
         mode,
+        seed: seed.trim() === "" ? undefined : seed.trim(),
       });
       const sid = sim.data.id;
       setBusyLabel("Breeding the population (LLM personas)…");
@@ -169,6 +180,14 @@ export default function Home({ onEnter }) {
                   <option value="heuristic">heuristic only</option>
                 </select>
               </label>
+              <label>
+                <span>Seed · {seed.trim() || "random"}</span>
+                <input
+                  placeholder="e.g. 42 — same seed, same world"
+                  value={seed}
+                  onChange={(e) => setSeed(e.target.value)}
+                />
+              </label>
             </div>
 
             <button className="cta" disabled={busy || !seeded} onClick={create}>
@@ -185,19 +204,46 @@ export default function Home({ onEnter }) {
 
       <section className="recent card">
         <h2><span className="sq" /> Recent simulations</h2>
+        {cmpSel.length > 0 && (
+          <div className="cmp-tray">
+            <span className="cmp-pick">⇄ {cmpSel.map((s) => s.name).join("  vs  ")}{cmpSel.length < 2 ? " — pick one more" : ""}</span>
+            <span className="grow" />
+            <button className="link" onClick={() => setCmpSel([])}>clear</button>
+            {cmpSel.length === 2 && (
+              <button
+                className="primary"
+                onClick={() => onCompare && onCompare({
+                  a: { sid: cmpSel[0].id, name: cmpSel[0].name },
+                  b: { sid: cmpSel[1].id, name: cmpSel[1].name },
+                })}
+              >
+                Compare →
+              </button>
+            )}
+          </div>
+        )}
         {simHistory.length === 0 ? (
           <div className="empty-state">Nothing here yet — your first simulation will appear here.</div>
         ) : (
           <ul className="history">
             {simHistory.slice(0, 8).map((s) => (
-              <li key={s.id}>
+              <li key={s.id} className={cmpSel.some((x) => x.id === s.id) ? "sel" : ""}>
                 <div className="h-name">{s.name}</div>
                 <div className="h-meta">
                   {s.project_name} · {s.config?.num_agents} citizens · {s.status}
                 </div>
-                <button className="link" onClick={() => onEnter({ sid: s.id, pid: s.project_id, name: s.name })}>
-                  open ↗
-                </button>
+                <div className="h-actions">
+                  <button
+                    className={`link${cmpSel.some((x) => x.id === s.id) ? " on" : ""}`}
+                    title="Select for A/B comparison"
+                    onClick={() => toggleCmp(s)}
+                  >
+                    ⇄
+                  </button>
+                  <button className="link" onClick={() => onEnter({ sid: s.id, pid: s.project_id, name: s.name })}>
+                    open ↗
+                  </button>
+                </div>
               </li>
             ))}
           </ul>

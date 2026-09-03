@@ -27,7 +27,7 @@ function normSnap(s) {
   };
 }
 
-export default function World({ sid, pid, name, onExit }) {
+export default function World({ sid, pid, name, onExit, onEnter }) {
   const [sim, setSim] = useState(null);
   const [agents, setAgents] = useState([]);
   const [feed, setFeed] = useState([]);
@@ -157,6 +157,37 @@ export default function World({ sid, pid, name, onExit }) {
       setError(e.message);
     }
   };
+  const resetAndRun = async () => {
+    setError("");
+    try {
+      await api.resetSimulation(sid);
+      const [a, snaps, evs] = await Promise.all([
+        api.getAgents(sid),
+        api.getSnapshots(sid),
+        api.getEvents(sid),
+      ]);
+      setAgents(a.data);
+      setSnapshots(snaps.data.map(normSnap));
+      setEvents(evs.data);
+      setFeed([]);
+      setReport(null);
+      setAnalysis(null);
+      setSelected(null);
+      await api.runSimulation(sid);
+      setSim((p) => ({ ...p, status: "running", current_round: 0 }));
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+  const cloneSim = async () => {
+    setError("");
+    try {
+      const r = await api.cloneSimulation(sid, {});
+      if (onEnter) onEnter({ sid: r.data.id, pid: r.data.project_id, name: r.data.name });
+    } catch (e) {
+      setError(e.message);
+    }
+  };
   const inject = async () => {
     if (!evtText.trim()) return;
     setError("");
@@ -207,6 +238,9 @@ export default function World({ sid, pid, name, onExit }) {
           <span className="pill">{mode === "llm" ? "LLM engine" : "heuristic engine"}</span>
           <span className="pill dim">round {sim?.current_round || 0}/{sim?.total_rounds || sim?.config?.rounds || "–"}</span>
           <span className="pill dim">{agents.length} citizens</span>
+          {sim?.config?.seed !== undefined && (
+            <span className="pill dim" title="Same seed + same settings = same world">seed {sim.config.seed}</span>
+          )}
         </div>
         <div className="w-actions">
           {!running && !done && (
@@ -214,6 +248,12 @@ export default function World({ sid, pid, name, onExit }) {
           )}
           {running && (
             <button className="ghost" onClick={stop}>■ Stop</button>
+          )}
+          {done && (
+            <button className="ghost" onClick={resetAndRun} title="Restore initial stances and run again">↻ Reset &amp; run</button>
+          )}
+          {agents.length > 0 && !running && (
+            <button className="ghost" onClick={cloneSim} title="Clone this world (same seed) for an A/B what-if run">⧉ Clone</button>
           )}
           <button className="ghost" onClick={onExit}>← back</button>
         </div>
