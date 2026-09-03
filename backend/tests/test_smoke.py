@@ -1,4 +1,5 @@
 """Smoke tests for the VoxPopuli API (heuristic mode, no LLM key needed)."""
+import asyncio
 import os
 import tempfile
 import time
@@ -224,3 +225,37 @@ def test_same_seed_same_world_and_reset(client):
             break
         time.sleep(0.25)
     assert s == "completed"
+
+
+def test_event_queue_heats_and_decays(client):
+    from app.simulation import SimulationEngine
+
+    proj = make_project(client)
+    r = client.post("/api/simulations", json={
+        "project_id": proj["id"], "num_agents": 8, "rounds": 6,
+        "speed_ms": 0, "mode": "heuristic", "seed": 5,
+    })
+    sid = r.json()["data"]["id"]
+    assert client.post(f"/api/simulations/{sid}/build").status_code == 200
+
+    sim = db.get_simulation(sid)
+    engine = SimulationEngine(sid, db.get_project(sim["project_id"]), sim["config"])
+    engine._load_agents()
+    engine.inject_event("Shock one", 0.8)
+    engine.inject_event("Shock two", 0.6)
+
+    asyncio.run(engine._do_round(1))
+    assert engine.active_event["content"] == "Shock one"
+    assert engine.event_heat == pytest.approx(0.4)
+    asyncio.run(engine._do_round(2))
+    assert engine.active_event["content"] == "Shock one"
+    assert engine.event_heat == pytest.approx(0.2)
+    asyncio.run(engine._do_round(3))
+    assert engine.active_event is None
+    asyncio.run(engine._do_round(4))
+    assert engine.active_event["content"] == "Shock two"
+    assert engine.event_heat == pytest.approx(0.3)
+
+    # snapshots record the pre-decay heat of their round
+    heats = [s["data"]["heat"] for s in db.get_snapshots(sid)]
+    assert heats == pytest.approx([0.8, 0.4, 0.2, 0.6])

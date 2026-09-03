@@ -22,33 +22,64 @@ log = logging.getLogger("voxpopuli.sim")
 ENGINES: dict[str, "SimulationEngine"] = {}
 TASKS: dict[str, asyncio.Task] = {}
 
-HEURISTIC_POSTS_POS = [
+HEURISTIC_POSTS_POS_STRONG = [
     "Finally, real movement on {t}. This is the kind of progress people were waiting for.",
+    "This is a massive win for {t}. Credit where it is due, this took guts.",
+    "I am all in on {t}. Anyone paying attention can see this is the right call.",
+    "About time. {t} is the best news we have had in years, full stop.",
+    "Strongly support this. {t} will pay off for ordinary people, mark my words.",
+    "Cheering this on loudly. {t} restores my faith that things can actually improve.",
+]
+HEURISTIC_POSTS_POS_MILD = [
     "Honestly, {t} needed this. I have been saying it for months.",
     "Good to see {t} finally getting the attention it deserves. Encouraging week.",
     "Supporting this wholeheartedly. {t} affects all of us, not just a few.",
+    "Cautiously optimistic about {t}. Early signs look better than I expected.",
+    "Leaning in favor on {t}. The details matter, but the direction feels right.",
+    "I will give credit here: the {t} announcement surprised me in a good way.",
 ]
-HEURISTIC_POSTS_NEG = [
-    "I have a bad feeling about {t}. Nobody asked for this and the timing is awful.",
-    "This whole {t} thing worries me. Short-term thinking again, as always.",
+HEURISTIC_POSTS_NEG_STRONG = [
     "Count me opposed. {t} will make things worse for ordinary people.",
     "We should push back on {t} before it is too late. This cannot stand.",
+    "Absolutely against {t}. This is reckless and everyone will regret it.",
+    "What a disaster. {t} is corrupt, short-sighted, and bound to backfire.",
+    "I will fight {t} every step of the way. Enough is enough.",
+    "Furious about {t}. Nobody asked for this and nobody benefits except insiders.",
+]
+HEURISTIC_POSTS_NEG_MILD = [
+    "I have a bad feeling about {t}. Nobody asked for this and the timing is awful.",
+    "This whole {t} thing worries me. Short-term thinking again, as always.",
+    "Skeptical of {t}. The promises sound nice but the track record says otherwise.",
+    "Not convinced by {t} at all. Too many unanswered questions for my taste.",
+    "Leaning against {t}. I want to be wrong, but I doubt I am.",
+    "Uneasy about {t}. It helps some people while quietly hurting many others.",
 ]
 HEURISTIC_POSTS_NEU = [
     "Still thinking through {t}. Too early to tell how this plays out.",
     "Watching {t} unfold. Both sides have points, honestly.",
     "Not sure what to make of {t} yet. Need more facts before I judge.",
+    "On the fence about {t}. Ask me again when we see real numbers.",
+    "Mixed feelings on {t}. The debate is louder than the evidence so far.",
+    "Sitting this one out until the dust settles on {t}. Too much spin around.",
 ]
 HEURISTIC_REACT = [
     "This exactly. Completely agree with {a}.",
     "Hadn't thought of it that way, but yeah.",
     "Disagree here. {a} is missing the bigger picture.",
     "Interesting take, though I'd push back on parts.",
+    "Well said. More people need to hear this.",
+    "Hard disagree, respectfully. The facts point the other way.",
+    "This changed my mind a little, not gonna lie.",
+    "Saving this. Best explanation I have seen all week.",
 ]
 
 
 def _clamp(v: float, lo: float = -1.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, v))
+
+
+def _camp(stance: float) -> str:
+    return "support" if stance > 0.25 else ("oppose" if stance < -0.25 else "neutral")
 
 
 def _stddev(vals: list[float]) -> float:
@@ -90,8 +121,9 @@ class SimulationEngine:
 
         self._stop = asyncio.Event()
         self.current_round = 0
-        self.pending_event: dict | None = None
+        self.pending_events: list[dict] = []
         self.active_event: dict | None = None
+        self.event_heat = 0.0
 
         self.agents: dict[str, dict] = {}   # agent_id -> row
         self._agent_by_name: dict[str, str] = {}
@@ -107,6 +139,12 @@ class SimulationEngine:
     async def run(self):
         try:
             self._load_agents()
+            # pick up events injected before the run started (the API records
+            # them even with no live engine to notify)
+            self.pending_events = [
+                {"content": e["content"], "impact": float(e.get("impact") or 0.5)}
+                for e in db.get_events(self.sid)
+            ]
             db.update_simulation(self.sid, status="running", current_round=0)
             start = self.current_round
             for r in range(start + 1, self.total_rounds + 1):
@@ -143,7 +181,7 @@ class SimulationEngine:
         self._stop.set()
 
     def inject_event(self, content: str, impact: float = 0.5):
-        self.pending_event = {"content": content, "impact": _clamp(impact, 0.05, 1.0)}
+        self.pending_events.append({"content": content, "impact": _clamp(impact, 0.05, 1.0)})
 
     # ------------------------------------------------------------ internals
 
@@ -223,9 +261,9 @@ Return ONLY a JSON array with exactly {len(active)} objects (one per citizen, sa
 name, action, content (only when posting/replying), reply_to_msg_id, target_msg_id, like, sentiment, stance_after, reason."""
 
     async def _do_round(self, r: int):
-        if self.pending_event and not self.active_event:
-            self.active_event = self.pending_event
-            self.pending_event = None
+        if self.active_event is None and self.pending_events:
+            self.active_event = self.pending_events.pop(0)
+            self.event_heat = float(self.active_event["impact"])
         rng = random.Random(self.seed + r * 7919)
         force_event = self.active_event is not None
         active_ids = self._active_agents(rng, force_event)
@@ -259,7 +297,12 @@ name, action, content (only when posting/replying), reply_to_msg_id, target_msg_
             "event": self.active_event,
         })
 
-        self.active_event = None  # breaking news settles after one round
+        # breaking-news heat decays: the story dominates ~2-3 rounds while it is
+        # hot, then settles; queued events play in turn
+        self.event_heat *= 0.5
+        if self.event_heat < 0.2:
+            self.active_event = None
+            self.event_heat = 0.0
 
     async def _llm_actions(self, r: int, active: list[dict]) -> list[dict]:
         client = LLMFactory.get()
@@ -319,7 +362,7 @@ name, action, content (only when posting/replying), reply_to_msg_id, target_msg_
             roll = rng.random()
             stance = a["stance"]
             event = self.active_event
-            impact = event["impact"] if event else 0.0
+            impact = self.event_heat if event else 0.0
             evt_sent = _text_sentiment(event["content"]) if event else 0.0
             actions.append({
                 "name": a["name"],
@@ -335,7 +378,17 @@ name, action, content (only when posting/replying), reply_to_msg_id, target_msg_
             act = actions[-1]
             if roll < 0.55 or (event and roll < 0.8):
                 act["action"] = "post"
-                template = _pick(HEURISTIC_POSTS_POS if stance > 0.3 else (HEURISTIC_POSTS_NEG if stance < -0.3 else HEURISTIC_POSTS_NEU), rng)[0]
+                if stance > 0.65:
+                    pool = HEURISTIC_POSTS_POS_STRONG
+                elif stance > 0.25:
+                    pool = HEURISTIC_POSTS_POS_MILD
+                elif stance < -0.65:
+                    pool = HEURISTIC_POSTS_NEG_STRONG
+                elif stance < -0.25:
+                    pool = HEURISTIC_POSTS_NEG_MILD
+                else:
+                    pool = HEURISTIC_POSTS_NEU
+                template = _pick(pool, rng)[0]
                 act["content"] = template.format(t=t).capitalize()
                 act["sentiment"] = _clamp(stance * 0.7 + rng.uniform(-0.25, 0.25))
                 shift = rng.uniform(-0.05, 0.05) + (impact * evt_sent * 0.4 if event else 0)
@@ -403,14 +456,22 @@ name, action, content (only when posting/replying), reply_to_msg_id, target_msg_
         voices = [a for aid, a in self.agents.items() if aid in active_ids and a["influence"] > 0.5]
         if not voices:
             return
-        total = sum(v["influence"] for v in voices)
-        pull = sum(v["stance"] * v["influence"] for v in voices) / total if total else 0.0
         for aid, a in self.agents.items():
             if aid in active_ids:
                 continue
-            if rng.random() < 0.35:
-                a["stance"] = _clamp(a["stance"] + (pull - a["stance"]) * 0.04 * a["influence"])
-                db.update_agent(self.sid, aid, stance=a["stance"])
+            if rng.random() >= 0.4:
+                continue
+            camp = _camp(a["stance"])
+            same = [v for v in voices if _camp(v["stance"]) == camp]
+            # echo chambers: quiet citizens mostly absorb their own camp's loudest
+            # voices, with occasional cross-camp exposure that builds bridges
+            pool = same if same and rng.random() < 0.85 else voices
+            total = sum(v["influence"] for v in pool)
+            if not total:
+                continue
+            pull = sum(v["stance"] * v["influence"] for v in pool) / total
+            a["stance"] = _clamp(a["stance"] + (pull - a["stance"]) * 0.06 * (0.5 + a["influence"]))
+            db.update_agent(self.sid, aid, stance=a["stance"])
 
     def _snapshot(self, r: int) -> dict:
         stances = [a["stance"] for a in self.agents.values()]
@@ -426,9 +487,10 @@ name, action, content (only when posting/replying), reply_to_msg_id, target_msg_
             "message_count": counts["count"],
             "avg_mood": round(sum(moods) / len(moods), 3) if moods else 0.0,
             "camps": camps,
+            "heat": round(self.event_heat, 3),
         }
         db.insert_snapshot(self.sid, r, snap["sentiment"], snap["stance_std"], counts["count"],
-                           {"avg_mood": snap["avg_mood"], "camps": camps})
+                           {"avg_mood": snap["avg_mood"], "camps": camps, "heat": snap["heat"]})
         return snap
 
     def _agent_public(self, a: dict) -> dict:
