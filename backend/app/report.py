@@ -21,6 +21,57 @@ def _camps(agents: list[dict]) -> dict:
     return camps
 
 
+def compute_confidence(sid: str) -> dict:
+    """0-95 confidence score for the prediction, with plain-language reasons.
+
+    Rewards: a dominant camp, converging spread, stable late sentiment, volume.
+    Penalizes: widening spread and mid-run shocks. No data yet → score None.
+    """
+    agents = db.get_agents(sid)
+    snaps = db.get_snapshots(sid)
+    evs = db.get_events(sid)
+    counts = db.message_counts(sid)
+    if not agents or not snaps:
+        return {"score": None, "label": "not enough data", "reasons": ["Run the simulation first."]}
+    if len(snaps) < 2:
+        return {"score": None, "label": "not enough data", "reasons": ["Needs at least 2 rounds."]}
+
+    score = 50.0
+    reasons: list[str] = []
+    total = len(agents)
+    camps = _camps(agents)
+    dominant = max(camps, key=lambda k: len(camps[k]))
+    dom_share = len(camps[dominant]) / total
+    s1 = round((dom_share - 1 / 3) / (2 / 3) * 20, 1)
+    score += s1
+    reasons.append(f"the {dominant} camp holds {dom_share:.0%} of citizens ({s1:+.0f})")
+
+    d_std = snaps[0]["stance_std"] - snaps[-1]["stance_std"]
+    s2 = round(max(-15.0, min(15.0, d_std * 30)), 1)
+    score += s2
+    verb = "converged" if d_std >= 0 else "widened"
+    reasons.append(f"opinion spread {verb} {snaps[0]['stance_std']:.2f} → {snaps[-1]['stance_std']:.2f} ({s2:+.0f})")
+
+    tail = [s["sentiment"] for s in snaps[-3:]]
+    wobble = max(tail) - min(tail)
+    s3 = round(max(-10.0, min(10.0, (0.5 - wobble) * 20)), 1)
+    score += s3
+    reasons.append(f"late sentiment {'stable' if wobble <= 0.5 else 'volatile'} (±{wobble / 2:.2f}, {s3:+.0f})")
+
+    s4 = round(min(10.0, counts["count"] / 20), 1)
+    score += s4
+    reasons.append(f"{counts['count']} public actions as evidence ({s4:+.0f})")
+
+    if evs:
+        s5 = round(max(-15.0, -5.0 * len(evs)), 1)
+        score += s5
+        reasons.append(f"{len(evs)} breaking event(s) shocked the world mid-run ({s5:+.0f})")
+
+    score = int(round(max(5, min(95, score))))
+    label = "High" if score >= 70 else ("Moderate" if score >= 45 else "Low")
+    return {"score": score, "label": label, "reasons": reasons}
+
+
 def _snapshot_rows(sid: str) -> str:
     snaps = db.get_snapshots(sid)
     if not snaps:
@@ -63,6 +114,12 @@ def _heuristic_report(sid: str, project: dict, agents: list[dict], snaps: list[d
     events_text = "\n".join(f"- round {e['round']}: \"{e['content']}\" (impact {e['impact']})" for e in evs) or "- none"
     top = _top_posts_rows(sid)
     final_sentiment = snaps[-1]["sentiment"] if snaps else 0.0
+    conf = compute_confidence(sid)
+    if conf["score"] is None:
+        conf_text = "Not enough data yet."
+    else:
+        why = "\n".join(f"- {r}" for r in conf["reasons"])
+        conf_text = f"**{conf['score']}/100 — {conf['label']} confidence.**\n{why}"
     return f"""# Public Opinion Prediction Report
 
 ## Executive summary
@@ -80,6 +137,9 @@ Overall sentiment {trend}. The simulation was run by the built-in heuristic engi
 
 ## Most popular posts
 {top}
+
+## Confidence
+{conf_text}
 
 ## What to watch next
 Monitor whether the neutral camp (the largest swing group) is pulled toward either side.
@@ -100,6 +160,11 @@ def build_digest(project: dict, agents: list[dict], sid: str) -> str:
         f"- neutral camp ({len(camps['neutral'])}): {', '.join(a['name'] for a in camps['neutral'][:6]) or 'none'}\n"
         f"- oppose camp ({len(camps['oppose'])}): {', '.join(a['name'] for a in camps['oppose'][:6]) or 'none'}"
     )
+    conf = compute_confidence(sid)
+    if conf["score"] is None:
+        conf_digest = "not enough data"
+    else:
+        conf_digest = f"{conf['score']}/100 ({conf['label']}) — " + "; ".join(conf["reasons"])
     return f"""PREDICTION QUESTION: {project.get('requirement') or 'What happens next?'}
 
 SIMULATION SNAPSHOTS (round by round):
@@ -110,6 +175,9 @@ INJECTED EVENTS:
 
 FINAL OPINION CAMPS:
 {camps_text}
+
+PREDICTION CONFIDENCE:
+{conf_digest}
 
 MOST POPULAR POSTS:
 {_top_posts_rows(sid)}"""
@@ -133,6 +201,7 @@ Structure it with these sections:
 ## How public opinion moved
 ## Opinion camps
 ## Key turning points
+## Confidence assessment (use the PREDICTION CONFIDENCE numbers, then add your own judgment)
 ## What to watch next
 ## Scenarios (base / optimistic / pessimistic)
 

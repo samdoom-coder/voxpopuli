@@ -211,6 +211,28 @@ export default function World({ sid, pid, name, onExit, onEnter }) {
       setReportLoading(false);
     }
   };
+  const [copied, setCopied] = useState(false);
+  const downloadReport = () => {
+    if (!report?.content) return;
+    const slug = (name || "voxpopuli").replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-").toLowerCase() || "report";
+    const blob = new Blob([report.content], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const el = document.createElement("a");
+    el.href = url;
+    el.download = `${slug}-prediction.md`;
+    el.click();
+    URL.revokeObjectURL(url);
+  };
+  const copyReport = async () => {
+    if (!report?.content) return;
+    try {
+      await navigator.clipboard.writeText(report.content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setError("Copy failed — select the report text manually.");
+    }
+  };
   const selectAgent = async (a) => {
     setSelected(a);
     try {
@@ -375,10 +397,36 @@ export default function World({ sid, pid, name, onExit, onEnter }) {
           <section className="card report-card">
             <div className="card-head">
               <h2><span className="sq" /> Prediction report</h2>
-              <button className="ghost" onClick={regen} disabled={reportLoading}>
-                {reportLoading ? "writing…" : "↻ regenerate"}
-              </button>
+              <div className="btn-row">
+                <button className="ghost" onClick={downloadReport} disabled={!report} title="Download as Markdown">⬇ .md</button>
+                <button className="ghost" onClick={copyReport} disabled={!report}>{copied ? "✓ copied" : "⧉ copy"}</button>
+                <button className="ghost" onClick={regen} disabled={reportLoading}>
+                  {reportLoading ? "writing…" : "↻ regenerate"}
+                </button>
+              </div>
             </div>
+            {analysis?.confidence?.score != null && (
+              <div className="conf">
+                <div className="conf-top">
+                  <span>Prediction confidence</span>
+                  <b className={`conf-${analysis.confidence.label.toLowerCase()}`}>
+                    {analysis.confidence.score}/100 · {analysis.confidence.label}
+                  </b>
+                </div>
+                <div className="conf-bar">
+                  <i
+                    style={{ width: `${analysis.confidence.score}%` }}
+                    className={`conf-${analysis.confidence.label.toLowerCase()}`}
+                  />
+                </div>
+                <details>
+                  <summary>why this score?</summary>
+                  <ul>
+                    {analysis.confidence.reasons.map((r, i) => <li key={i}>{r}</li>)}
+                  </ul>
+                </details>
+              </div>
+            )}
             {report ? (
               <div className="markdown" dangerouslySetInnerHTML={{ __html: renderMarkdown(report.content) }} />
             ) : (

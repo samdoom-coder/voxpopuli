@@ -29,7 +29,7 @@ function summarize(run) {
   const { snaps, analysis, events } = run;
   if (!snaps.length) {
     return { rounds: 0, first: 0, final: 0, move: 0, spread: 0, messages: 0,
-             camps: null, loudest: null, events };
+             camps: null, loudest: null, events, conf: "–" };
   }
   const first = snaps[0].sentiment;
   const last = snaps[snaps.length - 1];
@@ -46,6 +46,8 @@ function summarize(run) {
     first, final: last.sentiment, move: last.sentiment - first,
     spread: last.stance_std, messages: last.message_count,
     camps: last.camps, loudest, events,
+    conf: analysis?.confidence?.score != null
+      ? `${analysis.confidence.score} · ${analysis.confidence.label}` : "–",
   };
 }
 
@@ -83,6 +85,7 @@ export default function Compare({ a, b, onExit, onOpen }) {
     ["Rounds", `${sA.rounds}`, `${sB.rounds}`],
     ["Final sentiment", signed(sA.final), signed(sB.final)],
     ["Net movement", signed(sA.move), signed(sB.move)],
+    ["Confidence", sA.conf, sB.conf],
     ["Final spread", sA.spread?.toFixed(2) ?? "–", sB.spread?.toFixed(2) ?? "–"],
     ["Public actions", `${sA.messages}`, `${sB.messages}`],
     ["Final camps S/N/O",

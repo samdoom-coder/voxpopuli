@@ -9,7 +9,7 @@ from . import db
 from .agents import generate_world, layout_agents
 from .config import Config
 from .knowledge import extract_topics, summarize
-from .report import generate_report
+from .report import compute_confidence, generate_report
 from .simulation import ENGINES, start_engine, stop_engine
 from .ws import connect
 
@@ -311,6 +311,7 @@ async def analysis(sid: str):
         camps[key].sort(key=lambda x: -x["influence"])
     return {"success": True, "data": {
         "camps": {k: {"count": len(v), "members": v[:12]} for k, v in camps.items()},
+        "confidence": compute_confidence(sid),
         "sentiment_series": [{"round": s["round"], "sentiment": s["sentiment"], "stance_std": s["stance_std"],
                               "messages": s["message_count"]} for s in snaps],
     }}

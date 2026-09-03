@@ -123,10 +123,24 @@ def test_full_simulation_flow(client):
     r = client.get(f"/api/simulations/{sid}/report")
     assert r.status_code == 200
     assert "Executive summary" in r.json()["data"]["content"]
+    assert "Confidence" in r.json()["data"]["content"]
 
     r = client.get(f"/api/simulations/{sid}/analysis")
     camps = r.json()["data"]["camps"]
     assert sum(c["count"] for c in camps.values()) == 8
+    conf = r.json()["data"]["confidence"]
+    assert 5 <= conf["score"] <= 95
+    assert conf["label"] in ("High", "Moderate", "Low")
+    assert len(conf["reasons"]) >= 4
+
+
+def test_confidence_needs_data(client):
+    proj = make_project(client)
+    r = client.post("/api/simulations", json={"project_id": proj["id"], "num_agents": 6, "rounds": 2})
+    sid = r.json()["data"]["id"]
+    assert client.get(f"/api/simulations/{sid}/analysis").json()["data"]["confidence"]["score"] is None
+    assert client.post(f"/api/simulations/{sid}/build").status_code == 200
+    assert client.get(f"/api/simulations/{sid}/analysis").json()["data"]["confidence"]["score"] is None
 
 
 def test_run_without_build_fails(client):
