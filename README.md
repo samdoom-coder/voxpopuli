@@ -66,7 +66,7 @@ scripts/           setup.sh / backend.sh helpers (Colab-friendly, system-Python 
 
 ### Simulation engine
 
-![Description of image](public/cover-image.png)
+![Description of image](public/image.png)
 Each round every active citizen decides to post, reply, like or stay quiet based on their
 persona, current stance and mood, the recent conversation context, and any active breaking
 news. After each round, passive citizens are pulled toward the influential voices
