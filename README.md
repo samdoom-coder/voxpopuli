@@ -3,7 +3,7 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![Node 18+](https://img.shields.io/badge/node-18+-red.svg)](https://nodejs.org/en/download)
 
-![Description of image](image.png)
+![Description of image](public/cover-image.png)
 A self-contained **digital-world simulator** that predicts how the public reacts to a news story.
 
 Feed it a headline and a piece of news; VoxPopuli spins up a crowd of AI citizens with
@@ -66,6 +66,7 @@ scripts/           setup.sh / backend.sh helpers (Colab-friendly, system-Python 
 
 ### Simulation engine
 
+![Description of image](public/cover-image.png)
 Each round every active citizen decides to post, reply, like or stay quiet based on their
 persona, current stance and mood, the recent conversation context, and any active breaking
 news. After each round, passive citizens are pulled toward the influential voices
