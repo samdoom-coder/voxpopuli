@@ -40,22 +40,38 @@ async def create_project(
     seed_text: str = Form(""),
     files: list[UploadFile] = File(default=[]),
 ):
-    text = seed_text
+    # 2 MB per file / 8 MB total cap: prevents one upload from blowing up
+    # the SQLite seed_text column or the LLM world-brief prompt.
+    MAX_FILE_BYTES = 2 * 1024 * 1024
+    MAX_TOTAL_BYTES = 8 * 1024 * 1024
+    text = (seed_text or "")[:20000]
     saved = []
+    total = len(text.encode("utf-8", errors="ignore"))
     for f in files:
-        ext = "." + (f.filename or "").rsplit(".", 1)[-1].lower()
+        fname = (f.filename or "").strip()
+        # fix: previous ext check mis-handled names without a dot ("nodot" ->
+        # ext ".nodot") and hid real extensions like ".tar.gz"
+        ext = "." + fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
         if ext not in TEXT_EXTS:
             continue
         raw = await f.read()
+        if len(raw) > MAX_FILE_BYTES:
+            return JSONResponse({"success": False, "error": f"file too large (max 2MB): {fname}"}, status_code=400)
         try:
-            decoded = raw.decode("utf-8", errors="ignore")
+            decoded = raw.decode("utf-8", errors="ignore")[:20000]
         except Exception:
             decoded = ""
+        total += len(decoded.encode("utf-8", errors="ignore"))
+        if total > MAX_TOTAL_BYTES:
+            return JSONResponse({"success": False, "error": "combined upload too large (max 8MB)"}, status_code=400)
         text = f"{text}\n\n{decoded}"
-        saved.append(f.filename)
+        saved.append(fname)
+    name = (name or "").strip()[:200]
+    if not name:
+        return JSONResponse({"success": False, "error": "project name required"}, status_code=400)
     if not text.strip():
         return JSONResponse({"success": False, "error": "No seed material provided"}, status_code=400)
-    proj = db.create_project(name.strip(), text, requirement, saved)
+    proj = db.create_project(name, text[:40000], (requirement or "")[:2000], saved[:20])
     topics = extract_topics(text)
     db.update_project_topics(proj["id"], topics)
     proj = db.get_project(proj["id"])
@@ -110,14 +126,25 @@ async def create_simulation(payload: dict):
             seed = int(raw_seed)
         except (TypeError, ValueError):
             return JSONResponse({"success": False, "error": "invalid seed"}, status_code=400)
+    try:
+        speed_ms = int(payload.get("speed_ms") or 0)
+    except (TypeError, ValueError):
+        return JSONResponse({"success": False, "error": "invalid speed_ms"}, status_code=400)
+    speed_ms = max(0, min(speed_ms, 10000))
+    mode = str(payload.get("mode") or "auto").lower()
+    if mode not in ("auto", "llm", "heuristic"):
+        return JSONResponse({"success": False, "error": "invalid mode (auto|llm|heuristic)"}, status_code=400)
+    if mode == "llm" and not Config.llm_enabled():
+        return JSONResponse({"success": False, "error": "LLM mode requires LLM_API_KEY"}, status_code=400)
     config = {
         "num_agents": num,
         "rounds": rounds,
-        "speed_ms": max(0, int(payload.get("speed_ms") or 0)),
-        "mode": payload.get("mode") or "auto",
+        "speed_ms": speed_ms,
+        "mode": mode,
         "seed": seed,
     }
-    sim = db.create_simulation(pid, payload.get("name") or proj["name"], config)
+    sim_name = str(payload.get("name") or proj["name"])[:200]
+    sim = db.create_simulation(pid, sim_name, config)
     return {"success": True, "data": sim}
 
 
@@ -234,10 +261,14 @@ async def inject_event(sid: str, payload: dict):
     sim = db.get_simulation(sid)
     if not sim:
         return JSONResponse({"success": False, "error": "simulation not found"}, status_code=404)
-    content = str(payload.get("content") or "").strip()
+    content = str(payload.get("content") or "").strip()[:1000]
     if not content:
         return JSONResponse({"success": False, "error": "event content required"}, status_code=400)
-    impact = min(max(float(payload.get("impact") or 0.5), 0.05), 1.0)
+    try:
+        impact = float(payload.get("impact") if payload.get("impact") is not None else 0.5)
+    except (TypeError, ValueError):
+        return JSONResponse({"success": False, "error": "invalid impact"}, status_code=400)
+    impact = min(max(impact, 0.05), 1.0)
     engine = ENGINES.get(sid)
     round_ = (engine.current_round if engine else sim["current_round"]) + 1
     db.insert_event(sid, round_, content, impact)
@@ -253,6 +284,7 @@ async def get_agents(sid: str):
 
 @router.get("/simulations/{sid}/messages")
 async def get_messages(sid: str, limit: int = 60):
+    limit = max(1, min(limit, 200))
     msgs = db.recent_messages(sid, limit=limit)
     name_map = {a["id"]: a["name"] for a in db.get_agents(sid)}
     for m in msgs:
