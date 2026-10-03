@@ -151,6 +151,12 @@ def init_db():
         c.execute(
             "CREATE INDEX IF NOT EXISTS idx_agent_sim ON agents(simulation_id)"
         )
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_snap_sim ON snapshots(simulation_id, round)"
+        )
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_evt_sim ON events(simulation_id, round)"
+        )
 
 
 # ---------------------------------------------------------------- projects
@@ -180,7 +186,19 @@ def get_project(pid: str) -> dict | None:
 def list_projects() -> list[dict]:
     with cursor() as c:
         rows = c.execute("SELECT * FROM projects ORDER BY created_at DESC").fetchall()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["source_files"] = json.loads(d.get("source_files") or "[]")
+        except (TypeError, ValueError):
+            d["source_files"] = []
+        try:
+            d["topics"] = json.loads(d.get("topics") or "[]")
+        except (TypeError, ValueError):
+            d["topics"] = []
+        out.append(d)
+    return out
 
 
 def update_project_topics(pid: str, topics: list[dict]):
@@ -215,14 +233,30 @@ def get_simulation(sid: str) -> dict | None:
 def list_simulations() -> list[dict]:
     with cursor() as c:
         rows = c.execute("SELECT * FROM simulations ORDER BY created_at DESC").fetchall()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["config"] = json.loads(d.get("config") or "{}")
+        except (TypeError, ValueError):
+            d["config"] = {}
+        try:
+            d["world"] = json.loads(d.get("world") or "{}")
+        except (TypeError, ValueError):
+            d["world"] = {}
+        out.append(d)
+    return out
+
+
+_SIM_FIELDS = {"project_id", "name", "config", "status", "world", "current_round", "total_rounds", "error"}
 
 
 def update_simulation(sid: str, **fields):
-    if not fields:
+    safe = {k: v for k, v in fields.items() if k in _SIM_FIELDS}
+    if not safe:
         return
     encoded = {k: (json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v)
-               for k, v in fields.items()}
+               for k, v in safe.items()}
     sets = ", ".join(f"{k}=?" for k in encoded)
     vals = list(encoded.values())
     with cursor() as c:
@@ -280,9 +314,15 @@ def reset_simulation(simulation_id: str):
                   (simulation_id,))
 
 
+_AGENT_FIELDS = {"name", "avatar", "persona", "stance", "initial_stance", "mood", "activity", "influence", "x", "y"}
+
+
 def update_agent(simulation_id: str, agent_id: str, **fields):
-    sets = ", ".join(f"{k}=?" for k in fields)
-    vals = list(fields.values())
+    safe = {k: v for k, v in fields.items() if k in _AGENT_FIELDS}
+    if not safe:
+        return
+    sets = ", ".join(f"{k}=?" for k in safe)
+    vals = list(safe.values())
     with cursor() as c:
         c.execute(f"UPDATE agents SET {sets} WHERE simulation_id=? AND id=?", (*vals, simulation_id, agent_id))
 
@@ -330,6 +370,27 @@ def top_messages(simulation_id: str, round_: int | None, limit: int = 12) -> lis
         else:
             rows = c.execute(
                 "SELECT * FROM messages WHERE simulation_id=? ORDER BY likes DESC LIMIT ?",
+                (simulation_id, limit),
+            )
+        return [dict(r) for r in rows.fetchall()]
+
+
+def context_messages(simulation_id: str, round_: int | None, limit: int = 12) -> list[dict]:
+    """Recent discussion context for the simulation engine.
+
+    Unlike top_messages (all-time most-liked, used for reports), this returns
+    the most recent posts/replies so agents react to the current conversation
+    instead of a stale viral post from round 1.
+    """
+    with cursor() as c:
+        if round_ is not None:
+            rows = c.execute(
+                "SELECT * FROM messages WHERE simulation_id=? AND round<? AND kind IN ('post','reply') ORDER BY round DESC, created_at DESC LIMIT ?",
+                (simulation_id, round_, limit),
+            )
+        else:
+            rows = c.execute(
+                "SELECT * FROM messages WHERE simulation_id=? AND kind IN ('post','reply') ORDER BY round DESC, created_at DESC LIMIT ?",
                 (simulation_id, limit),
             )
         return [dict(r) for r in rows.fetchall()]
