@@ -198,15 +198,17 @@ class SimulationEngine:
             self._agent_by_name[a["name"]] = a["id"]
 
     def _context_lines(self, r: int) -> tuple[list[str], dict[str, dict]]:
-        top = db.top_messages(self.sid, r, limit=Config.CONTEXT_RECENT_MESSAGES)
+        # Use recency-ordered context (not all-time most-liked) so agents react
+        # to the current conversation instead of a stale viral post from round 1.
+        recent = db.context_messages(self.sid, r, limit=Config.CONTEXT_RECENT_MESSAGES)
         lines = []
         index = {}
-        for i, m in enumerate(top, 1):
+        for i, m in enumerate(recent, 1):
             name = self.agents.get(m["agent_id"], {}).get("name", "?")
             text = (m["content"] or "")[:140]
             lines.append(f"[{i}] @{name}: \"{text}\"")
             index[str(i)] = m
-        self._ctx_messages = top
+        self._ctx_messages = recent
         return lines, index
 
     def _active_agents(self, rng: random.Random, force_all: bool) -> list[str]:
@@ -277,7 +279,7 @@ name, action, content (only when posting/replying), reply_to_msg_id, target_msg_
         else:
             round_actions = self._heuristic_actions(rng, r, active)
 
-        await self._apply_actions(r, round_actions, mode)
+        applied_actions = await self._apply_actions(r, round_actions, mode)
 
         # social pull: passive citizens drift toward the influential voices
         await self._community_pull(rng, active_ids)
@@ -292,7 +294,7 @@ name, action, content (only when posting/replying), reply_to_msg_id, target_msg_
             "stance_std": snap["stance_std"],
             "message_count": snap["message_count"],
             "camps": snap["camps"],
-            "actions": round_actions,
+            "actions": applied_actions,
             "agents": [self._agent_public(a) for a in self.agents.values()],
             "event": self.active_event,
         })
@@ -306,6 +308,11 @@ name, action, content (only when posting/replying), reply_to_msg_id, target_msg_
 
     async def _llm_actions(self, r: int, active: list[dict]) -> list[dict]:
         client = LLMFactory.get()
+        if client is None:
+            # Key removed mid-run or mode forced to llm without a key: fall back
+            # to heuristic instead of crashing on None.chat_json_array.
+            log.warning("LLM mode requested but no API key - using heuristic fallback")
+            return self._heuristic_actions(random.Random(self.seed + r * 7919), r, active)
         batches = [active[i:i + Config.LLM_BATCH_SIZE] for i in range(0, len(active), Config.LLM_BATCH_SIZE)]
         prompts = [self._round_prompt(r, b, self.active_event is not None) for b in batches]
         tasks = [
@@ -342,6 +349,11 @@ name, action, content (only when posting/replying), reply_to_msg_id, target_msg_
         allowed = {"post", "reply", "reaction", "do_nothing"}
         if act not in allowed:
             act = "do_nothing"
+        def _f(key: str, default: float) -> float:
+            try:
+                return float(item.get(key) if item.get(key) is not None else default)
+            except (TypeError, ValueError):
+                return default
         return {
             "name": agent["name"],
             "action": act,
@@ -349,8 +361,8 @@ name, action, content (only when posting/replying), reply_to_msg_id, target_msg_
             "reply_to": str(item.get("reply_to_msg_id") or "").strip(),
             "target": str(item.get("target_msg_id") or "").strip(),
             "like": bool(item.get("like", True)),
-            "sentiment": _clamp(float(item.get("sentiment") or 0.0)),
-            "stance_after": _clamp(float(item.get("stance_after") or agent["stance"])),
+            "sentiment": _clamp(_f("sentiment", 0.0)),
+            "stance_after": _clamp(_f("stance_after", agent["stance"])),
             "reason": str(item.get("reason") or "").strip()[:120],
         }
 
@@ -394,22 +406,31 @@ name, action, content (only when posting/replying), reply_to_msg_id, target_msg_
                 shift = rng.uniform(-0.05, 0.05) + (impact * evt_sent * 0.4 if event else 0)
                 act["stance_after"] = _clamp(stance + shift)
             elif roll < 0.78:
-                act["action"] = "reaction"
                 if self._ctx_messages:
                     target = rng.choice(self._ctx_messages)
                     act["target"] = target["id"]
                     agree = target["sentiment"] * stance > 0 or (target["sentiment"] == 0)
                     act["like"] = agree if rng.random() < 0.75 else (not agree)
                     act["sentiment"] = 1.0 if act["like"] else -1.0
-                    act["content"] = _pick(HEURISTIC_REACT, rng)[0].format(a=f"@{self.agents[target['agent_id']]['name']}")
-                    act["action"] = "reply" if rng.random() < 0.4 else "reaction"
-                    act["reply_to"] = target["id"] if act["action"] == "reply" else ""
+                    # Decide reply vs pure like first: only replies carry text, so
+                    # we no longer generate (then discard) a comment for likes.
+                    if rng.random() < 0.4:
+                        act["action"] = "reply"
+                        act["reply_to"] = target["id"]
+                        act["content"] = _pick(HEURISTIC_REACT, rng)[0].format(a=f"@{self.agents[target['agent_id']]['name']}")
+                    else:
+                        act["action"] = "reaction"
+                        act["reply_to"] = ""
+                        act["content"] = ""
+                else:
+                    act["action"] = "do_nothing"
+                    act["reason"] = "nothing to react to yet"
             elif roll < 0.9:
                 act["action"] = "do_nothing"
                 act["reason"] = "just lurking"
         return actions
 
-    async def _apply_actions(self, r: int, actions: list[dict], mode: str):
+    async def _apply_actions(self, r: int, actions: list[dict], mode: str) -> list[dict]:
         applied: list[dict] = []
         for act in actions:
             aid = self._agent_by_name.get(act["name"])
@@ -417,6 +438,9 @@ name, action, content (only when posting/replying), reply_to_msg_id, target_msg_
                 continue
             a = self.agents[aid]
             kind = act["action"]
+            # Guard against empty posts/replies (e.g. LLM returned action with no text).
+            if kind in ("post", "reply") and not str(act.get("content") or "").strip():
+                kind = "do_nothing"
             public = {"agent_id": aid, "agent_name": a["name"], "kind": kind, "round": r,
                       "platform": a.get("platform", "reddit"), "stance": _clamp(act.get("stance_after", a["stance"])),
                       "sentiment": act.get("sentiment", 0.0), "content": act.get("content", ""),
@@ -451,6 +475,7 @@ name, action, content (only when posting/replying), reply_to_msg_id, target_msg_
             db.update_agent(self.sid, aid, stance=a["stance"], mood=a["mood"])
         if applied:
             await broadcast(self.sid, {"type": "actions", "actions": applied})
+        return applied
 
     async def _community_pull(self, rng: random.Random, active_ids: list[str]):
         voices = [a for aid, a in self.agents.items() if aid in active_ids and a["influence"] > 0.5]
